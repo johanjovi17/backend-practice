@@ -1,33 +1,41 @@
 @BackendPractice_HostAddress = http://localhost:5200
 
-GET {{BackendPractice_HostAddress}}/api/items
+GET {{BackendPractice_HostAddress}}/api/courses
 Accept: application/json
 
 ###
 
-POST {{BackendPractice_HostAddress}}/api/items
+POST {{BackendPractice_HostAddress}}/api/courses
 Content-Type: application/json
 
 {
-  "name": "Practice item",
-  "description": "Created while practicing REST endpoints"
+  "title": "How to be an f1 champion",
+  "instructorName": "Max",
+  "description": "This course will teach you to be champion in f1!",
+  "price": 5,
+  "category": "racing",
+  "status": "Published"
 }
 
 ###
 
-GET {{BackendPractice_HostAddress}}/api/items/1
+GET {{BackendPractice_HostAddress}}/api/courses/1
 Accept: application/json
 
 ###
 
-PUT {{BackendPractice_HostAddress}}/api/items/1
+PUT {{BackendPractice_HostAddress}}/api/courses/1
 Content-Type: application/json
 
 {
-  "name": "Updated practice item",
-  "description": "Updated through the API"
+  "title": "Updated F1 course",
+  "instructorName": "Max",
+  "description": "Updated course description",
+  "price": 10,
+  "category": "racing",
+  "status": "Draft"
 }
 
 ###
 
-DELETE {{BackendPractice_HostAddress}}/api/items/1
+DELETE {{BackendPractice_HostAddress}}/api/courses/1
