@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/courses`
-  : "/api/courses";
+const API_ROOT = import.meta.env.VITE_API_URL || "/api";
+const API_URL = `${API_ROOT}/courses`;
 const CATEGORIES = ["software engineering", "racing", "finance", "health", "law"];
 const STATUSES = ["Draft", "Published", "Archived"];
 const EMPTY_FORM = {
@@ -14,13 +13,14 @@ const EMPTY_FORM = {
   status: "Draft",
 };
 
-async function request(path = "", options = {}) {
+async function request(path = "", options = {}, token = null, baseUrl = API_URL) {
   let response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...options,
       headers: {
         ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
     });
@@ -51,6 +51,12 @@ function formatPrice(price) {
 }
 
 export default function App() {
+  const [session, setSession] = useState(() => {
+    const savedSession = sessionStorage.getItem("courseDeskSession");
+    return savedSession ? JSON.parse(savedSession) : null;
+  });
+  const [authMode, setAuthMode] = useState(null);
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
   const [courses, setCourses] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
@@ -66,13 +72,13 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      setCourses(await request());
+      setCourses(await request("", {}, session?.accessToken));
     } catch (loadError) {
       setError(loadError.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [session?.accessToken, session?.user?.role]);
 
   useEffect(() => {
     loadCourses();
@@ -128,10 +134,10 @@ export default function App() {
 
     try {
       if (editingId === null) {
-        await request("", { method: "POST", body: JSON.stringify(payload) });
+        await request("", { method: "POST", body: JSON.stringify(payload) }, session?.accessToken);
         setNotice("Course created successfully.");
       } else {
-        await request(`/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
+        await request(`/${editingId}`, { method: "PUT", body: JSON.stringify(payload) }, session?.accessToken);
         setNotice("Course updated successfully.");
       }
       resetForm();
@@ -149,13 +155,61 @@ export default function App() {
     setError("");
     setNotice("");
     try {
-      await request(`/${course.id}`, { method: "DELETE" });
+      await request(`/${course.id}`, { method: "DELETE" }, session?.accessToken);
       setCourses((current) => current.filter((item) => item.id !== course.id));
       if (editingId === course.id) resetForm();
       setNotice("Course deleted successfully.");
     } catch (deleteError) {
       setError(deleteError.message);
     }
+  }
+
+  async function submitAuth(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setNotice("");
+
+    const isRegistering = authMode === "register";
+    try {
+      const result = await request(
+        isRegistering ? "/register" : "/login",
+        {
+          method: "POST",
+          body: JSON.stringify(isRegistering
+            ? authForm
+            : { email: authForm.email, password: authForm.password }),
+        },
+        null,
+        `${API_ROOT}/auth`,
+      );
+
+      if (isRegistering) {
+        setAuthMode("login");
+        setAuthForm({ name: "", email: authForm.email, password: "" });
+        setNotice("Account created. Sign in to continue.");
+      } else {
+        const nextSession = {
+          accessToken: result.accessToken,
+          expiresAt: result.expiresAt,
+          user: result.user,
+        };
+        sessionStorage.setItem("courseDeskSession", JSON.stringify(nextSession));
+        setSession(nextSession);
+        setAuthMode(null);
+        setAuthForm({ name: "", email: "", password: "" });
+      }
+    } catch (authError) {
+      setError(authError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function signOut() {
+    sessionStorage.removeItem("courseDeskSession");
+    setSession(null);
+    setNotice("You have signed out.");
   }
 
   return (
@@ -165,16 +219,104 @@ export default function App() {
           <span className="brand-mark">C</span>
           <span>CourseDesk</span>
         </a>
-        <button className="button-primary" type="button" onClick={() => { resetForm(); setError(""); setNotice(""); setShowForm(true); }}>
-          + New course
-        </button>
+        <div className="topbar-actions">
+          {session ? (
+            <>
+              <span className="account-label">{session.user.name} · {session.user.role}</span>
+              <button className="button-secondary" type="button" onClick={signOut}>Sign out</button>
+            </>
+          ) : authMode ? (
+            <button className="button-secondary" type="button" onClick={() => { setAuthMode(null); setError(""); setNotice(""); }}>
+              Back to courses
+            </button>
+          ) : (
+            <>
+              <button className="button-secondary" type="button" onClick={() => { setAuthMode("login"); setError(""); setNotice(""); }}>
+                Sign in
+              </button>
+              <button className="button-primary" type="button" onClick={() => { setAuthMode("register"); setError(""); setNotice(""); }}>
+                Register
+              </button>
+            </>
+          )}
+          {session?.user?.role === "Admin" && !authMode && (
+            <button className="button-primary" type="button" onClick={() => { resetForm(); setError(""); setNotice(""); setShowForm(true); }}>
+              + New course
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="main-content" id="courses">
+        {authMode ? (
+          <section className="auth-card">
+            <div className="auth-heading">
+              <span className="eyebrow">COURSEDESK ACCOUNT</span>
+              <h1>{authMode === "register" ? "Create your account" : "Welcome back"}</h1>
+              <p>{authMode === "register" ? "Sign up to keep learning with CourseDesk." : "Sign in to your CourseDesk account."}</p>
+            </div>
+            {error && <div className="feedback feedback-error" role="alert">{error}</div>}
+            {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
+            <form onSubmit={submitAuth}>
+              {authMode === "register" && (
+                <label className="field">
+                  <span>Name <b>*</b></span>
+                  <input
+                    autoComplete="name"
+                    maxLength="100"
+                    required
+                    value={authForm.name}
+                    onChange={(event) => setAuthForm({ ...authForm, name: event.target.value })}
+                    placeholder="Your name"
+                  />
+                </label>
+              )}
+              <label className="field">
+                <span>Email <b>*</b></span>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  maxLength="256"
+                  required
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })}
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label className="field">
+                <span>Password <b>*</b></span>
+                <input
+                  type="password"
+                  autoComplete={authMode === "register" ? "new-password" : "current-password"}
+                  minLength={authMode === "register" ? 12 : undefined}
+                  maxLength="128"
+                  required
+                  value={authForm.password}
+                  onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })}
+                  placeholder={authMode === "register" ? "At least 12 characters" : "Your password"}
+                />
+              </label>
+              <button className="button-primary auth-submit" type="submit" disabled={saving}>
+                {saving ? "Please wait..." : authMode === "register" ? "Create account" : "Sign in"}
+              </button>
+            </form>
+            <p className="auth-switch">
+              {authMode === "register" ? "Already have an account?" : "New to CourseDesk?"}{" "}
+              <button type="button" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setError(""); setNotice(""); }}>
+                {authMode === "register" ? "Sign in" : "Create an account"}
+              </button>
+            </p>
+          </section>
+        ) : (
+          <>
         <section className="page-heading">
           <div>
-            <h1>Courses</h1>
-            <p className="page-subtitle">{courses.length} courses · {publishedCount} published</p>
+            <h1>{session?.user?.role === "Admin" ? "Course management" : "Explore courses"}</h1>
+            <p className="page-subtitle">
+              {session?.user?.role === "Admin"
+                ? `${courses.length} courses · ${publishedCount} published`
+                : `${publishedCount} published ${publishedCount === 1 ? "course" : "courses"}`}
+            </p>
           </div>
         </section>
 
@@ -196,10 +338,12 @@ export default function App() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </label>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status">
-              <option>All courses</option>
-              {STATUSES.map((status) => <option key={status}>{status}</option>)}
-            </select>
+            {session?.user?.role === "Admin" && (
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status">
+                <option>All courses</option>
+                {STATUSES.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            )}
           </div>
 
           {loading ? (
@@ -213,7 +357,7 @@ export default function App() {
             <div className="table-scroll">
               <table className="course-table">
                 <thead>
-                  <tr><th>Course</th><th>Instructor</th><th>Category</th><th>Price</th><th>Status</th><th aria-label="Actions" /></tr>
+                  <tr><th>Course</th><th>Instructor</th><th>Category</th><th>Price</th><th>Status</th>{session?.user?.role === "Admin" && <th aria-label="Actions" />}</tr>
                 </thead>
                 <tbody>
                   {visibleCourses.map((course) => (
@@ -223,10 +367,12 @@ export default function App() {
                       <td className="category-cell">{course.category}</td>
                       <td>{formatPrice(course.price)}</td>
                       <td><span className={`status-pill status-${course.status.toLowerCase()}`}>{course.status}</span></td>
-                      <td className="row-actions">
-                        <button type="button" onClick={() => editCourse(course)}>Edit</button>
-                        <button type="button" className="delete-action" onClick={() => deleteCourse(course)}>Delete</button>
-                      </td>
+                      {session?.user?.role === "Admin" && (
+                        <td className="row-actions">
+                          <button type="button" onClick={() => editCourse(course)}>Edit</button>
+                          <button type="button" className="delete-action" onClick={() => deleteCourse(course)}>Delete</button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -234,7 +380,9 @@ export default function App() {
             </div>
           )}
         </section>
-        <footer className="page-footer">CourseDesk · Course management</footer>
+        <footer className="page-footer">CourseDesk · {session?.user?.role === "Admin" ? "Course management" : "Browse published courses"}</footer>
+          </>
+        )}
       </main>
 
       {showForm && (

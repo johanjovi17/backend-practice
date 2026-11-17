@@ -35,10 +35,24 @@ Open the Vite URL (normally `http://localhost:5173`). The frontend calls the API
 
 | Method | Route | Behavior |
 | --- | --- | --- |
+| POST | `/api/auth/register` | Register a Customer account |
+| POST | `/api/auth/login` | Verify credentials and return a bearer token |
 | GET | `/api/courses` | List courses |
-| GET | `/api/courses/{id}` | Get one course |
-| POST | `/api/courses` | Create a course |
-| PUT | `/api/courses/{id}` | Update a course |
-| DELETE | `/api/courses/{id}` | Delete a course |
+| GET | `/api/courses/{id}` | Get a published course |
+| POST | `/api/courses` | Create a course (Admin only) |
+| PUT | `/api/courses/{id}` | Update a course (Admin only) |
+| DELETE | `/api/courses/{id}` | Delete a course (Admin only) |
+
+Course list and detail endpoints are public and return published courses. An Admin can also view unpublished courses after signing in. New registrations always receive the Customer role; promote an account to Admin only through a trusted administrative process.
+
+Configure a strong JWT signing key through an environment variable or user secrets. The key must be at least 32 bytes and is deliberately not stored in `appsettings.json`:
+
+```bash
+export Jwt__SigningKey="$(openssl rand -base64 48)"
+```
+
+The API stores passwords using ASP.NET Core's password hasher and enforces a unique email index. Startup creates the Users table if an existing `EnsureCreated` database does not yet have it.
+
+The frontend includes simple sign-in and registration forms. It keeps the bearer token for the current browser session and sends it only for authenticated requests. The API remains responsible for enforcing course permissions.
 
 Course categories are limited to `software engineering`, `racing`, `finance`, `health`, and `law`. Status must be `Draft`, `Published`, or `Archived`. Titles/categories are required and prices cannot be negative. Invalid requests return `400`; missing courses return `404`.

@@ -1,5 +1,6 @@
 using BackendPractice.Models;
 using BackendPractice.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BackendPractice.Controllers;
@@ -9,17 +10,30 @@ namespace BackendPractice.Controllers;
 public sealed class CoursesController(ICourseService courseService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<Course>>> GetAll(CancellationToken cancellationToken) =>
-        Ok(await courseService.GetAllAsync(cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<Course>>> GetAll(CancellationToken cancellationToken)
+    {
+        var courses = await courseService.GetAllAsync(cancellationToken);
+        return Ok(User.IsInRole(nameof(UserRole.Admin))
+            ? courses
+            : courses.Where(course => course.Status == CourseStatus.Published));
+    }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<Course>> GetById(int id, CancellationToken cancellationToken)
     {
         var course = await courseService.GetByIdAsync(id, cancellationToken);
+        if (course is not null &&
+            course.Status != CourseStatus.Published &&
+            !User.IsInRole(nameof(UserRole.Admin)))
+        {
+            return NotFound();
+        }
+
         return course is null ? NotFound() : Ok(course);
     }
 
     [HttpPost]
+    [Authorize(Roles = nameof(UserRole.Admin))]
     public async Task<ActionResult<Course>> Create(
         CourseRequest request,
         CancellationToken cancellationToken)
@@ -34,6 +48,7 @@ public sealed class CoursesController(ICourseService courseService) : Controller
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = nameof(UserRole.Admin))]
     public async Task<ActionResult<Course>> Update(
         int id,
         CourseRequest request,
@@ -54,6 +69,7 @@ public sealed class CoursesController(ICourseService courseService) : Controller
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = nameof(UserRole.Admin))]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var deleted = await courseService.DeleteAsync(id, cancellationToken);

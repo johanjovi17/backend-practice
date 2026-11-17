@@ -80,3 +80,5 @@
 /workspaces/backend-practice/BackendPractice/bin/Debug/net10.0/runtimes/win-arm64/native/msalruntime_arm64.dll
 /workspaces/backend-practice/BackendPractice/bin/Debug/net10.0/runtimes/win-x64/native/msalruntime.dll
 /workspaces/backend-practice/BackendPractice/bin/Debug/net10.0/runtimes/win-x86/native/msalruntime_x86.dll
+/workspaces/backend-practice/BackendPractice/bin/Debug/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll
+/workspaces/backend-practice/BackendPractice/bin/Debug/net10.0/Microsoft.Bcl.Cryptography.dll
