@@ -35,6 +35,10 @@ builder.Services
 builder.Services.AddDbContext<CourseDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.Configure<CourseOptions>(builder.Configuration.GetSection("Courses"));
 builder.Services.AddScoped<ICourseService, CourseService>();
+builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
+builder.Services.AddSingleton<EnrollmentMessageQueue>();
+builder.Services.AddHostedService<OutboxPublisherService>();
+builder.Services.AddHostedService<EnrollmentWorker>();
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
@@ -103,6 +107,66 @@ await using (var scope = app.Services.CreateAsyncScope())
             );
             CREATE UNIQUE INDEX [IX_Users_Email] ON [dbo].[Users] ([Email]);
         END;
+        """);
+    await dbContext.Database.ExecuteSqlRawAsync(
+        """
+        IF OBJECT_ID(N'[dbo].[Enrollments]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [dbo].[Enrollments] (
+                [Id] int IDENTITY(1,1) NOT NULL,
+                [StudentId] int NOT NULL,
+                [CourseId] int NOT NULL,
+                [EnrolledAt] datetime2 NOT NULL,
+                [Status] nvarchar(50) NOT NULL,
+                CONSTRAINT [PK_Enrollments] PRIMARY KEY ([Id])
+            );
+        END;
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_Enrollments_StudentId_CourseId')
+            CREATE UNIQUE INDEX [IX_Enrollments_StudentId_CourseId]
+                ON [dbo].[Enrollments] ([StudentId], [CourseId]);
+
+        IF OBJECT_ID(N'[dbo].[OutboxMessages]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [dbo].[OutboxMessages] (
+                [Id] uniqueidentifier NOT NULL,
+                [EventType] nvarchar(100) NOT NULL,
+                [Payload] nvarchar(max) NOT NULL,
+                [CreatedAt] datetime2 NOT NULL,
+                [PublishedAt] datetime2 NULL,
+                [Status] nvarchar(50) NOT NULL,
+                [RetryCount] int NOT NULL,
+                CONSTRAINT [PK_OutboxMessages] PRIMARY KEY ([Id])
+            );
+        END;
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_OutboxMessages_Status_CreatedAt')
+            CREATE INDEX [IX_OutboxMessages_Status_CreatedAt]
+                ON [dbo].[OutboxMessages] ([Status], [CreatedAt]);
+
+        IF OBJECT_ID(N'[dbo].[ProcessedMessages]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [dbo].[ProcessedMessages] (
+                [MessageId] uniqueidentifier NOT NULL,
+                [ProcessedAt] datetime2 NOT NULL,
+                [Status] nvarchar(50) NOT NULL,
+                CONSTRAINT [PK_ProcessedMessages] PRIMARY KEY ([MessageId])
+            );
+        END;
+
+        IF OBJECT_ID(N'[dbo].[DeadLetterMessages]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [dbo].[DeadLetterMessages] (
+                [Id] int IDENTITY(1,1) NOT NULL,
+                [MessageId] uniqueidentifier NOT NULL,
+                [EventType] nvarchar(100) NOT NULL,
+                [Payload] nvarchar(max) NOT NULL,
+                [FailedAt] datetime2 NOT NULL,
+                [Error] nvarchar(max) NOT NULL,
+                CONSTRAINT [PK_DeadLetterMessages] PRIMARY KEY ([Id])
+            );
+        END;
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_DeadLetterMessages_MessageId')
+            CREATE UNIQUE INDEX [IX_DeadLetterMessages_MessageId]
+                ON [dbo].[DeadLetterMessages] ([MessageId]);
         """);
 }
 

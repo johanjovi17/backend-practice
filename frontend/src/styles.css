@@ -57,6 +57,9 @@ h1 { margin-bottom: 5px; font-size: 24px; font-weight: 650; letter-spacing: -.5p
 .empty-state { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #626c79; text-align: center; }
 .empty-state strong { font-size: 14px; font-weight: 600; }
 .empty-state p { margin: 5px 0 0; color: #858e9a; font-size: 12px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px; border-top: 1px solid #edf0f4; }
+.pagination span { color: #697382; font-size: 12px; }
+.pagination button:disabled { cursor: not-allowed; opacity: .55; }
 .loader { width: 18px; height: 18px; margin-bottom: 10px; border: 2px solid #e1e5f5; border-top-color: #5368d8; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .feedback { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid; border-radius: 6px; font-size: 12px; }

@@ -10,12 +10,20 @@ namespace BackendPractice.Controllers;
 public sealed class CoursesController(ICourseService courseService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<Course>>> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] CourseQueryParameters queryParameters,
+        CancellationToken cancellationToken)
     {
-        var courses = await courseService.GetAllAsync(cancellationToken);
-        return Ok(User.IsInRole(nameof(UserRole.Admin))
-            ? courses
-            : courses.Where(course => course.Status == CourseStatus.Published));
+        var result = await courseService.GetCoursesAsync(
+            queryParameters,
+            User.IsInRole(nameof(UserRole.Admin)),
+            cancellationToken);
+        if (result.Errors is not null)
+        {
+            return ValidationProblem(new ValidationProblemDetails(result.Errors));
+        }
+
+        return Ok(result.Page);
     }
 
     [HttpGet("{id:int}")]

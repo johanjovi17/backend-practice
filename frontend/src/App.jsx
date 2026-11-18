@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_ROOT = import.meta.env.VITE_API_URL || "/api";
 const API_URL = `${API_ROOT}/courses`;
+const PAGE_SIZE = 10;
 const CATEGORIES = ["software engineering", "racing", "finance", "health", "law"];
 const STATUSES = ["Draft", "Published", "Archived"];
 const EMPTY_FORM = {
@@ -58,6 +59,9 @@ export default function App() {
   const [authMode, setAuthMode] = useState(null);
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
   const [courses, setCourses] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
@@ -72,13 +76,20 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      setCourses(await request("", {}, session?.accessToken));
+      const query = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (session?.user?.role === "Admin" && statusFilter !== "All courses") {
+        query.set("status", statusFilter);
+      }
+      const result = await request(`?${query}`, {}, session?.accessToken);
+      setCourses(result.courses);
+      setTotalPages(result.totalPages);
+      setTotalRecords(result.totalRecords);
     } catch (loadError) {
       setError(loadError.message);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken, session?.user?.role]);
+  }, [page, session?.accessToken, session?.user?.role, statusFilter]);
 
   useEffect(() => {
     loadCourses();
@@ -96,8 +107,6 @@ export default function App() {
       return matchesStatus && matchesSearch;
     });
   }, [courses, search, statusFilter]);
-
-  const publishedCount = courses.filter((course) => course.status === "Published").length;
 
   function resetForm() {
     setForm(EMPTY_FORM);
@@ -157,6 +166,15 @@ export default function App() {
     try {
       await request(`/${course.id}`, { method: "DELETE" }, session?.accessToken);
       setCourses((current) => current.filter((item) => item.id !== course.id));
+      const nextTotalRecords = Math.max(0, totalRecords - 1);
+      const nextTotalPages = Math.ceil(nextTotalRecords / PAGE_SIZE);
+      setTotalRecords(nextTotalRecords);
+      setTotalPages(nextTotalPages);
+      if (page > Math.max(1, nextTotalPages)) {
+        setPage(Math.max(1, nextTotalPages));
+      } else {
+        await loadCourses();
+      }
       if (editingId === course.id) resetForm();
       setNotice("Course deleted successfully.");
     } catch (deleteError) {
@@ -314,8 +332,8 @@ export default function App() {
             <h1>{session?.user?.role === "Admin" ? "Course management" : "Explore courses"}</h1>
             <p className="page-subtitle">
               {session?.user?.role === "Admin"
-                ? `${courses.length} courses · ${publishedCount} published`
-                : `${publishedCount} published ${publishedCount === 1 ? "course" : "courses"}`}
+                ? `${totalRecords} courses`
+                : `${totalRecords} published ${totalRecords === 1 ? "course" : "courses"}`}
             </p>
           </div>
         </section>
@@ -339,7 +357,14 @@ export default function App() {
               />
             </label>
             {session?.user?.role === "Admin" && (
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status">
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value);
+                  setPage(1);
+                }}
+                aria-label="Filter by status"
+              >
                 <option>All courses</option>
                 {STATUSES.map((status) => <option key={status}>{status}</option>)}
               </select>
@@ -350,8 +375,8 @@ export default function App() {
             <div className="empty-state"><span className="loader" /> Loading courses...</div>
           ) : visibleCourses.length === 0 ? (
             <div className="empty-state">
-              <strong>{courses.length ? "No matching courses" : "No courses yet"}</strong>
-              <p>{courses.length ? "Try another search or filter." : "Create a course to get started."}</p>
+              <strong>{totalRecords ? "No matching courses" : "No courses yet"}</strong>
+              <p>{totalRecords ? "Try another search or filter." : "Create a course to get started."}</p>
             </div>
           ) : (
             <div className="table-scroll">
@@ -378,6 +403,27 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+          )}
+          {!loading && totalPages > 1 && (
+            <nav className="pagination" aria-label="Course pages">
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={() => setPage((current) => current - 1)}
+                disabled={page <= 1}
+              >
+                Previous
+              </button>
+              <span>Page {page} of {totalPages}</span>
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={() => setPage((current) => current + 1)}
+                disabled={page >= totalPages}
+              >
+                Next
+              </button>
+            </nav>
           )}
         </section>
         <footer className="page-footer">CourseDesk · {session?.user?.role === "Admin" ? "Course management" : "Browse published courses"}</footer>

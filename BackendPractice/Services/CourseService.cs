@@ -12,11 +12,113 @@ public sealed class CourseService(
     private readonly HashSet<string> _allowedCategories =
         new(courseOptions.Value.AllowedCategories, StringComparer.OrdinalIgnoreCase);
 
-    public async Task<IReadOnlyList<Course>> GetAllAsync(CancellationToken cancellationToken) =>
-        await dbContext.Courses
-            .AsNoTracking()
-            .OrderBy(course => course.Id)
-            .ToListAsync(cancellationToken);
+    public async Task<CourseQueryResult> GetCoursesAsync(
+        CourseQueryParameters parameters,
+        bool includeUnpublished,
+        CancellationToken cancellationToken)
+    {
+        var page = parameters.Page <= 0 ? 1 : parameters.Page;
+        var pageSize = parameters.PageSize <= 0 ? 10 : Math.Min(parameters.PageSize, 50);
+        var sortBy = parameters.SortBy ?? "createdAt";
+        var sortOrder = parameters.SortOrder ?? "asc";
+        var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+        if (parameters.MinPrice < 0)
+        {
+            errors["minPrice"] = ["Minimum price cannot be negative."];
+        }
+
+        if (parameters.MaxPrice < 0)
+        {
+            errors["maxPrice"] = ["Maximum price cannot be negative."];
+        }
+
+        if (parameters.MinPrice.HasValue &&
+            parameters.MaxPrice.HasValue &&
+            parameters.MinPrice > parameters.MaxPrice)
+        {
+            errors["minPrice"] = ["Minimum price cannot be greater than maximum price."];
+        }
+
+        if (!new[] { "title", "price", "createdAt" }.Contains(sortBy, StringComparer.OrdinalIgnoreCase))
+        {
+            errors["sortBy"] = ["Sort by must be title, price, or createdAt."];
+        }
+
+        if (!new[] { "asc", "desc" }.Contains(sortOrder, StringComparer.OrdinalIgnoreCase))
+        {
+            errors["sortOrder"] = ["Sort order must be asc or desc."];
+        }
+
+        CourseStatus? status = null;
+        if (parameters.Status is not null)
+        {
+            var statusName = Enum.GetNames<CourseStatus>().FirstOrDefault(
+                name => string.Equals(name, parameters.Status, StringComparison.OrdinalIgnoreCase));
+            if (statusName is null)
+            {
+                errors["status"] = ["Status must be Draft, Published, or Archived."];
+            }
+            else
+            {
+                status = Enum.Parse<CourseStatus>(statusName);
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return CourseQueryResult.Invalid(errors);
+        }
+
+        IQueryable<Course> query = dbContext.Courses.AsNoTracking();
+        if (!includeUnpublished)
+        {
+            query = query.Where(course => course.Status == CourseStatus.Published);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.Category))
+        {
+            query = query.Where(course => course.Category == parameters.Category);
+        }
+
+        if (parameters.MinPrice.HasValue)
+        {
+            query = query.Where(course => course.Price >= parameters.MinPrice.Value);
+        }
+
+        if (parameters.MaxPrice.HasValue)
+        {
+            query = query.Where(course => course.Price <= parameters.MaxPrice.Value);
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(course => course.Status == status.Value);
+        }
+
+        var totalRecords = await query.CountAsync(cancellationToken);
+        var descending = string.Equals(sortOrder, "desc", StringComparison.OrdinalIgnoreCase);
+        var orderedQuery = sortBy.ToLowerInvariant() switch
+        {
+            "title" => descending
+                ? query.OrderByDescending(course => course.Title).ThenBy(course => course.Id)
+                : query.OrderBy(course => course.Title).ThenBy(course => course.Id),
+            "price" => descending
+                ? query.OrderByDescending(course => course.Price).ThenBy(course => course.Id)
+                : query.OrderBy(course => course.Price).ThenBy(course => course.Id),
+            _ => descending
+                ? query.OrderByDescending(course => course.CreatedAt).ThenBy(course => course.Id)
+                : query.OrderBy(course => course.CreatedAt).ThenBy(course => course.Id)
+        };
+
+        var skip = (long)(page - 1) * pageSize;
+        var courses = skip > int.MaxValue
+            ? new List<Course>()
+            : await orderedQuery.Skip((int)skip).Take(pageSize).ToListAsync(cancellationToken);
+        var totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize);
+
+        return CourseQueryResult.Success(new CoursePage(totalPages, courses, totalRecords));
+    }
 
     public Task<Course?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
         dbContext.Courses.AsNoTracking().FirstOrDefaultAsync(course => course.Id == id, cancellationToken);
